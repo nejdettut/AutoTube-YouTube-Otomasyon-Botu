@@ -1,0 +1,47 @@
+# ============================================================
+#  .gitignore — Gizli ve gereksiz dosyaları GitHub'dan koru
+# ============================================================
+
+# --- GİZLİ DOSYALAR (ASLA ATMA) ---
+.env
+config/client_secret.json
+config/token.pickle
+*.pickle
+*.pem
+*.key
+
+# --- ÇIKTI DOSYALARI ---
+output/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# --- VİDEO / SES / GÖRSEL DOSYALARI ---
+*.mp4
+*.mp3
+*.wav
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.srt
+
+# --- PYTHON ---
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

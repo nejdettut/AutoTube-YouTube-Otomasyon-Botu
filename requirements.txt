@@ -1,0 +1,15 @@
+# YouTube Otomasyon Botu - Gerekli Kütüphaneler
+# Kurmak için: pip install -r requirements.txt
+
+python-dotenv>=1.0.0
+groq>=0.9.0
+elevenlabs>=0.2.0
+gtts>=2.3.0
+requests>=2.31.0
+moviepy<2.0.0
+Pillow<10.0.0
+pydub>=0.25.1
+schedule>=1.2.0
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=1.1.0
