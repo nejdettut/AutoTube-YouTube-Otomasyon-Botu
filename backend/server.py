@@ -11,65 +11,82 @@ Kullanım:
 import os
 import sys
 import json
-import argparse
 import random
 import datetime
 import traceback
+import threading
+import uuid
+
+import uvicorn
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # Modülleri import et
-from config.settings import TOPIC_LIST, VIDEO_LANGUAGE, SCHEDULE_DAYS, SCHEDULE_TIME
+from config.settings import TOPIC_LIST, VIDEO_LANGUAGE
 from modules.content_generator import generate_script, generate_srt
 from modules.voice_synthesizer import text_to_speech, get_audio_duration
 from modules.image_fetcher import fetch_images
 from modules.video_builder import build_video, create_thumbnail
 from modules.youtube_uploader import upload_video
 
+app = FastAPI()
 
-def run_pipeline(topic: str = None) -> dict:
-    """
-    Verilen konuya göre tam pipeline'ı çalıştırır.
-    """
-    if not topic:
-        topic = random.choice(TOPIC_LIST)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+os.makedirs("output", exist_ok=True)
+app.mount("/output", StaticFiles(directory="output"), name="output")
+
+JOBS = {}
+
+class VideoRequest(BaseModel):
+    topic: str
+
+def run_pipeline(topic: str, job_id: str):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     work_dir = f"output/{timestamp}"
     os.makedirs(work_dir, exist_ok=True)
 
     log = {"topic": topic, "timestamp": timestamp, "steps": {}}
+    JOBS[job_id]["status"] = "running"
+    JOBS[job_id]["log"] = log
 
-    print(f"\n{'='*60}")
-    print(f"  YouTube Otomasyon Botu Başladı")
-    print(f"  Konu: {topic}")
-    print(f"  Dil: {VIDEO_LANGUAGE}")
-    print(f"{'='*60}\n")
+    def update_step(step_name, status_msg):
+        log["steps"][step_name] = status_msg
+        JOBS[job_id]["log"] = log
 
     # ─── ADIM 1: İçerik Üret ────────────────────────────────
-    print("[1/6] Senaryo ve içerik üretiliyor...")
+    update_step("content", "üretiliyor...")
     try:
         content = generate_script(topic)
         with open(f"{work_dir}/content.json", "w", encoding="utf-8") as f:
             json.dump(content, f, ensure_ascii=False, indent=2)
-        log["steps"]["content"] = "✓"
-        print(f"      Başlık: {content['title']}")
+        update_step("content", "✓")
+        JOBS[job_id]["content"] = content
     except Exception as e:
-        _fail("İçerik üretimi", e, log)
-        return log
+        _fail("content", e, log, job_id)
+        return
 
     # ─── ADIM 2: Seslendirme ────────────────────────────────
-    print("[2/6] Seslendirme oluşturuluyor...")
+    update_step("audio", "oluşturuluyor...")
     audio_path = f"{work_dir}/audio.mp3"
     try:
         text_to_speech(content["script"], audio_path, VIDEO_LANGUAGE)
         duration = get_audio_duration(audio_path)
-        log["steps"]["audio"] = f"✓ ({duration:.0f}s)"
-        print(f"      Ses süresi: {duration:.0f} saniye")
+        update_step("audio", f"✓ ({duration:.0f}s)")
     except Exception as e:
-        _fail("Seslendirme", e, log)
-        return log
+        _fail("audio", e, log, job_id)
+        return
 
     # ─── ADIM 3: Altyazı ────────────────────────────────────
-    print("[3/6] Altyazı oluşturuluyor...")
+    update_step("subtitle", "oluşturuluyor...")
     subtitle_lang = "en" if VIDEO_LANGUAGE == "tr" else "tr"
     subtitle_text = content.get("subtitle_translation", "")
     srt_path = f"{work_dir}/subtitle_{subtitle_lang}.srt"
@@ -77,27 +94,26 @@ def run_pipeline(topic: str = None) -> dict:
         srt_content = generate_srt(subtitle_text, subtitle_lang)
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write(srt_content)
-        log["steps"]["subtitle"] = f"✓ ({subtitle_lang.upper()})"
-        print(f"      Altyazı dili: {subtitle_lang.upper()}")
+        update_step("subtitle", f"✓ ({subtitle_lang.upper()})")
     except Exception as e:
-        print(f"[UYARI] Altyazı oluşturulamadı: {e}")
+        update_step("subtitle", f"✗ ({e})")
         subtitle_text = ""
 
     # ─── ADIM 4: Görseller ──────────────────────────────────
-    print("[4/6] Görseller indiriliyor...")
+    update_step("images", "indiriliyor...")
     image_dir = f"{work_dir}/images"
     queries = [s.get("image_query", topic) for s in content.get("slides", [])]
     if not queries:
         queries = [topic] * 6
     try:
         image_paths = fetch_images(queries, image_dir)
-        log["steps"]["images"] = f"✓ ({len(image_paths)} görsel)"
+        update_step("images", f"✓ ({len(image_paths)} görsel)")
     except Exception as e:
-        _fail("Görsel indirme", e, log)
-        return log
+        _fail("images", e, log, job_id)
+        return
 
     # ─── ADIM 5: Video Üret ─────────────────────────────────
-    print("[5/6] Video oluşturuluyor...")
+    update_step("video", "oluşturuluyor...")
     video_path = f"{work_dir}/video.mp4"
     thumbnail_path = f"{work_dir}/thumbnail.jpg"
     try:
@@ -109,15 +125,15 @@ def run_pipeline(topic: str = None) -> dict:
             output_path=video_path,
             slide_data=content.get("slides", [])
         )
-        # Thumbnail
         create_thumbnail(content["title"], image_paths[0], thumbnail_path)
-        log["steps"]["video"] = "✓"
+        update_step("video", "✓")
+        JOBS[job_id]["video_url"] = f"/output/{timestamp}/video.mp4"
     except Exception as e:
-        _fail("Video üretimi", e, log)
-        return log
+        _fail("video", e, log, job_id)
+        return
 
     # ─── ADIM 6: YouTube'a Yükle ────────────────────────────
-    print("[6/6] YouTube'a yükleniyor...")
+    update_step("upload", "yükleniyor...")
     try:
         video_id = upload_video(
             video_path=video_path,
@@ -127,62 +143,34 @@ def run_pipeline(topic: str = None) -> dict:
             tags=content.get("tags", []),
             language=VIDEO_LANGUAGE
         )
-        log["steps"]["upload"] = f"✓ ID: {video_id}"
-        log["youtube_url"] = f"https://www.youtube.com/watch?v={video_id}"
+        update_step("upload", f"✓ ID: {video_id}")
+        JOBS[job_id]["youtube_url"] = f"https://www.youtube.com/watch?v={video_id}"
     except Exception as e:
-        _fail("YouTube yükleme", e, log)
-        return log
+        update_step("upload", f"✗ (YouTube atlandı: {e})")
+        pass
 
-    print(f"\n{'='*60}")
-    print(f"  ✅ TAMAMLANDI!")
-    print(f"  URL: {log.get('youtube_url', 'N/A')}")
-    print(f"{'='*60}\n")
+    JOBS[job_id]["status"] = "completed"
 
-    # Log kaydet
-    with open(f"{work_dir}/log.json", "w", encoding="utf-8") as f:
-        json.dump(log, f, ensure_ascii=False, indent=2)
-
-    return log
-
-
-def _fail(step: str, error: Exception, log: dict):
-    print(f"\n[✗] HATA - {step}: {error}")
+def _fail(step: str, error: Exception, log: dict, job_id: str):
     traceback.print_exc()
     log["steps"][step] = f"✗ {error}"
+    JOBS[job_id]["status"] = "error"
+    JOBS[job_id]["error"] = str(error)
 
+@app.post("/api/generate")
+def generate_video_endpoint(req: VideoRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    topic = req.topic if req.topic else random.choice(TOPIC_LIST)
+    JOBS[job_id] = {"status": "starting", "topic": topic, "log": {"steps": {}}}
+    
+    background_tasks.add_task(run_pipeline, topic, job_id)
+    return {"job_id": job_id, "message": "Video üretimi başlatıldı."}
 
-def run_scheduler():
-    """Zamanlayıcı modunda çalışır - belirlenen günlerde otomatik yayınlar"""
-    import schedule
-    import time
-
-    day_map = {
-        "monday": schedule.every().monday,
-        "tuesday": schedule.every().tuesday,
-        "wednesday": schedule.every().wednesday,
-        "thursday": schedule.every().thursday,
-        "friday": schedule.every().friday,
-        "saturday": schedule.every().saturday,
-        "sunday": schedule.every().sunday,
-    }
-
-    for day in SCHEDULE_DAYS:
-        day_map[day.lower()].at(SCHEDULE_TIME).do(run_pipeline)
-        print(f"[⏰] Zamanlandı: Her {day} saat {SCHEDULE_TIME}")
-
-    print(f"\n[▶] Zamanlayıcı çalışıyor... (Ctrl+C ile durdur)\n")
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
+@app.get("/api/status/{job_id}")
+def get_status(job_id: str):
+    if job_id not in JOBS:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JOBS[job_id]
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="YouTube Otomasyon Botu")
-    parser.add_argument("topic", nargs="?", help="Video konusu (opsiyonel)")
-    parser.add_argument("--schedule", action="store_true", help="Zamanlayıcı modunda çalıştır")
-    args = parser.parse_args()
-
-    if args.schedule:
-        run_scheduler()
-    else:
-        run_pipeline(args.topic)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)

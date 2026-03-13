@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoTube - YouTube Eğitim Botu</title>
+    <meta name="description" content="Yapay zeka ile saniyeler içinde tam otomatik eğitim videoları oluşturun. Konu girin, videonuz yüklensin.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <main class="container">
+        <header>
+            <h1>Auto<span>Tube</span></h1>
+            <p>Otomatik Video Üretim Platformu</p>
+        </header>
+
+        <section class="prompt-section">
+            <div class="input-wrapper">
+                <input type="text" id="topicInput" placeholder="Videonun konusunu yazın (örn: Kara deliklerin sırları)" autocomplete="off">
+                <button id="generateBtn" onclick="startGeneration()">
+                    <span>Videoyu Üret</span>
+                    <svg viewBox="0 0 24 24" fill="none" class="rocket-icon"><path d="M12 2.5L9.5 8H14.5L12 2.5Z" fill="currentColor"/><path d="M5 19L7 14L12 17L5 19Z" fill="currentColor"/><path d="M19 19L17 14L12 17L19 19Z" fill="currentColor"/><path d="M12 17L7 14V8H17V14L12 17Z" fill="currentColor"/></svg>
+                </button>
+            </div>
+            <p class="hint">Boş bırakırsanız yapay zeka kendisi bir konu seçer.</p>
+        </section>
+
+        <section id="statusSection" class="status-section hidden">
+            <h3 id="statusTitle">Video Üretiliyor...</h3>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <ul id="stepsList" class="steps-list">
+                <!-- Adımlar buraya gelecek -->
+            </ul>
+        </section>
+
+        <section id="resultSection" class="result-section hidden">
+            <h2>🎉 Video Hazır!</h2>
+            <div class="video-wrapper">
+                <video id="resultVideo" controls crossorigin="anonymous"></video>
+            </div>
+            
+            <div class="meta-data">
+                <h3>Video Meta Verileri</h3>
+                <div class="meta-field">
+                    <label>Başlık:</label>
+                    <p id="resTitle">-</p>
+                </div>
+                <div class="meta-field">
+                    <label>Açıklama:</label>
+                    <pre id="resDescription">-</pre>
+                </div>
+                <div class="meta-field">
+                    <label>Hashtag'ler:</label>
+                    <div id="resTags" class="tags-container"></div>
+                </div>
+                <a id="youtubeLink" href="#" target="_blank" class="youtube-btn hidden">YouTube'da İzle</a>
+            </div>
+        </section>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
